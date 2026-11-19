@@ -4,11 +4,11 @@ import math
 
 from fastapi import HTTPException, status
 
-from app import user_repository
 from app.core.permissions import Role
 from app.core.security import hash_password
-from app.models import new_user_document, user_to_out
-from app.schemas import UserCreate, UserUpdate
+from app.db import user_repository
+from app.db.models import new_user_document, user_to_out
+from app.schemas.user import UserCreate, UserUpdate
 
 
 async def _get_or_404(user_id: str) -> dict:

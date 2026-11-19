@@ -1,13 +1,13 @@
-"""/api/v1/auth endpoints."""
+"""/auth endpoints: register, login, refresh, me."""
 
 from fastapi import APIRouter, Depends, status
 
-from app.models import user_to_out
+from app.db.models import user_to_out
 from app.routes.deps import get_current_user
-from app.schemas import LoginRequest, RefreshRequest, TokenPair, UserOut, UserRegister
+from app.schemas.user import LoginRequest, RefreshRequest, TokenPair, UserOut, UserRegister
 from app.services import auth_service
 
-router = APIRouter(prefix="/auth", tags=["Auth"])
+router = APIRouter(tags=["Auth"])
 
 
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
