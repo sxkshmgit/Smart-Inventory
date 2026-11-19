@@ -4,8 +4,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app import user_repository
 from app.core.database import close_db, connect_db
+from app.db import user_repository
 from app.routes import auth, users
 
 
@@ -18,13 +18,13 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Smart Inventory & Order Management API",
+    title="Auth-service",
     version="0.1.0",
     lifespan=lifespan,
 )
 
-app.include_router(auth.router, prefix="/api/v1")
-app.include_router(users.router, prefix="/api/v1")
+app.include_router(auth.router, prefix="/auth")
+app.include_router(users.router, prefix="/auth")
 
 
 @app.get("/health", tags=["Health"])

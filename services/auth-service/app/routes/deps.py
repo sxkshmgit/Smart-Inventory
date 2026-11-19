@@ -8,9 +8,9 @@ Usage in a route:
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from app import user_repository
 from app.core.permissions import has_permission
 from app.core.security import ACCESS_TOKEN, decode_token
+from app.db import user_repository
 
 # Reads the "Authorization: Bearer <token>" header and adds the Authorize button to /docs.
 bearer_scheme = HTTPBearer()

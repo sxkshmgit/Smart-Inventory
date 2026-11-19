@@ -8,11 +8,11 @@ Safe to run more than once: users that already exist are skipped.
 
 import asyncio
 
-from app import user_repository
 from app.core.database import close_db, connect_db
 from app.core.permissions import Role
 from app.core.security import hash_password
-from app.models import new_user_document
+from app.db import user_repository
+from app.db.models import new_user_document
 
 SEED_PASSWORD = "Password123!"
 

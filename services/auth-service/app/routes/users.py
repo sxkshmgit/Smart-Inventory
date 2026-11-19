@@ -1,4 +1,4 @@
-"""/api/v1/users endpoints: admin user management.
+"""/auth/users endpoints: admin user management.
 
 Every route is protected by a permission from core/permissions.py.
 `dependencies=[...]` runs the check when the route doesn't need the user object itself.
@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Query, status
 
 from app.core.permissions import Role
 from app.routes.deps import require_permission
-from app.schemas import RoleUpdate, UserCreate, UserList, UserOut, UserUpdate
+from app.schemas.user import RoleUpdate, UserCreate, UserList, UserOut, UserUpdate
 from app.services import user_service
 
 router = APIRouter(prefix="/users", tags=["Users"])

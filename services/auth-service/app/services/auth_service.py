@@ -2,7 +2,6 @@
 
 from fastapi import HTTPException, status
 
-from app import user_repository
 from app.core.permissions import Role
 from app.core.security import (
     REFRESH_TOKEN,
@@ -12,8 +11,9 @@ from app.core.security import (
     hash_password,
     verify_password,
 )
-from app.models import new_user_document, user_to_out
-from app.schemas import LoginRequest, UserRegister
+from app.db import user_repository
+from app.db.models import new_user_document, user_to_out
+from app.schemas.user import LoginRequest, UserRegister
 
 
 def _issue_tokens(user: dict) -> dict:
