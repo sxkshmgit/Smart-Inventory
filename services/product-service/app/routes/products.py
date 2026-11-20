@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, Query, status
 
 from app.routes.deps import require_permission
-from app.schemas.product import ProductCreate, ProductList, ProductOut, ProductStatus
+from app.schemas.product import ProductCreate, ProductList, ProductOut, ProductStatus, ProductUpdate
 from app.services import product_service
 
 router = APIRouter(tags=["Products"])
@@ -26,3 +26,20 @@ async def list_products(
     return await product_service.list_products(
         page, page_size, search=search, category=category, status=status, supplier_id=supplier_id
     )
+
+
+@router.get("/{product_id}", response_model=ProductOut, dependencies=[Depends(require_permission("product:read"))])
+async def get_product(product_id: str):
+    return await product_service.get_product(product_id)
+
+
+@router.patch("/{product_id}", response_model=ProductOut)
+async def update_product(
+    product_id: str, data: ProductUpdate, user: dict = Depends(require_permission("product:update"))
+):
+    return await product_service.update_product(product_id, data, user)
+
+
+@router.delete("/{product_id}", response_model=ProductOut)
+async def delete_product(product_id: str, user: dict = Depends(require_permission("product:delete"))):
+    return await product_service.deactivate_product(product_id, user)

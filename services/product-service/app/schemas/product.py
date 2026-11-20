@@ -42,6 +42,25 @@ class ProductCreate(BaseModel):
         return self
 
 
+class ProductUpdate(BaseModel):
+    """Every field is optional: only the fields sent are changed.
+
+    sku, status and created_by can't be changed here.
+    """
+
+    name: str | None = Field(default=None, min_length=2, max_length=200)
+    description: str | None = Field(default=None, max_length=2000)
+    category: str | None = Field(default=None, min_length=2, max_length=100)
+    brand: str | None = Field(default=None, max_length=100)
+    supplier_ids: list[str] | None = None
+    cost_price: float | None = Field(default=None, ge=0)
+    selling_price: float | None = Field(default=None, ge=0)
+    reorder_level: int | None = Field(default=None, ge=0)
+    tax_percentage: float | None = Field(default=None, ge=0, le=100)
+    unit: str | None = Field(default=None, min_length=1, max_length=20)
+    images: list[ProductImage] | None = None
+
+
 class ProductOut(BaseModel):
     """What the API returns for a product."""
 

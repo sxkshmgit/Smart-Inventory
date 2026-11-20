@@ -1,7 +1,10 @@
 """All MongoDB access for products. No other file talks to the products collection."""
 
 import re
+from datetime import datetime, timezone
 
+from bson import ObjectId
+from bson.errors import InvalidId
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
@@ -74,3 +77,30 @@ async def list_products(skip: int, limit: int, **filters) -> list[dict]:
 
 async def count(**filters) -> int:
     return await _products().count_documents(_build_query(**filters))
+
+
+def _to_object_id(product_id: str) -> ObjectId | None:
+    """Turn a string id into an ObjectId, or None if it isn't a valid id."""
+    try:
+        return ObjectId(product_id)
+    except (InvalidId, TypeError):
+        return None
+
+
+async def get_by_id(product_id: str) -> dict | None:
+    oid = _to_object_id(product_id)
+    if oid is None:
+        return None
+    return await _products().find_one({"_id": oid})
+
+
+async def update(product_id: str, fields: dict) -> dict | None:
+    """Set the given fields and updated_at. Return the updated product, or None if not found."""
+    oid = _to_object_id(product_id)
+    if oid is None:
+        return None
+    return await _products().find_one_and_update(
+        {"_id": oid},
+        {"$set": {**fields, "updated_at": datetime.now(timezone.utc)}},
+        return_document=ReturnDocument.AFTER,
+    )
