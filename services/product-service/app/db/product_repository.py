@@ -1,5 +1,7 @@
 """All MongoDB access for products. No other file talks to the products collection."""
 
+import re
+
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
@@ -46,3 +48,29 @@ async def create(product_doc: dict) -> dict:
     except DuplicateKeyError:
         raise DuplicateSkuError(product_doc["sku"])
     return {**product_doc, "_id": result.inserted_id}
+
+
+def _build_query(search=None, category=None, status=None, supplier_id=None) -> dict:
+    """Turn the optional filters into a MongoDB query. Filters that are None are skipped."""
+    query = {}
+    if search:
+        # re.escape: the user's text is matched literally, not as a regex pattern.
+        pattern = {"$regex": re.escape(search), "$options": "i"}  # "i" = ignore case
+        query["$or"] = [{"name": pattern}, {"sku": pattern}]
+    if category:
+        query["category"] = {"$regex": f"^{re.escape(category)}$", "$options": "i"}
+    if status:
+        query["status"] = status
+    if supplier_id:
+        query["supplier_ids"] = supplier_id  # matches if the list contains this id
+    return query
+
+
+async def list_products(skip: int, limit: int, **filters) -> list[dict]:
+    """Newest first. `filters` are the same keywords as _build_query."""
+    cursor = _products().find(_build_query(**filters)).sort("created_at", -1).skip(skip).limit(limit)
+    return await cursor.to_list()
+
+
+async def count(**filters) -> int:
+    return await _products().count_documents(_build_query(**filters))

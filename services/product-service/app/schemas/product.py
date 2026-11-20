@@ -63,3 +63,13 @@ class ProductOut(BaseModel):
     updated_by: str
     created_at: datetime
     updated_at: datetime
+
+
+class ProductList(BaseModel):
+    """One page of products."""
+
+    items: list[ProductOut]
+    total: int
+    page: int
+    page_size: int
+    pages: int

@@ -1,5 +1,6 @@
 """Business rules for products."""
 
+import math
 import re
 
 from fastapi import HTTPException, status
@@ -27,3 +28,16 @@ async def create_product(data: ProductCreate, user: dict) -> dict:
         # Only possible if the counter was reset by hand.
         raise HTTPException(status.HTTP_409_CONFLICT, f"SKU {sku} already exists, try again")
     return product_to_out(product)
+
+
+async def list_products(page: int, page_size: int, **filters) -> dict:
+    skip = (page - 1) * page_size
+    products = await product_repository.list_products(skip=skip, limit=page_size, **filters)
+    total = await product_repository.count(**filters)
+    return {
+        "items": [product_to_out(p) for p in products],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "pages": math.ceil(total / page_size),
+    }
