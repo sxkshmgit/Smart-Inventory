@@ -5,11 +5,14 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.core.database import close_db, connect_db
+from app.db import product_repository
+from app.routes import products
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await connect_db()
+    await product_repository.create_indexes()
     yield
     await close_db()
 
@@ -19,6 +22,8 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+app.include_router(products.router, prefix="/products")
 
 
 @app.get("/health", tags=["Health"])
