@@ -35,7 +35,7 @@ def _categories():
 async def create_indexes() -> None:
     await _products().create_index("sku", unique=True)
     await _products().create_index("name")
-    await _products().create_index("category")
+    await _products().create_index("category_id")
     # Same name can't appear twice under the same parent (top-level ones have parent_id None).
     await _categories().create_index([("parent_id", 1), ("name_lower", 1)], unique=True)
 
@@ -63,15 +63,15 @@ async def create(product_doc: dict) -> dict:
     return {**product_doc, "_id": result.inserted_id}
 
 
-def _build_query(search=None, category=None, status=None, supplier_id=None) -> dict:
+def _build_query(search=None, category_ids=None, status=None, supplier_id=None) -> dict:
     """Turn the optional filters into a MongoDB query. Filters that are None are skipped."""
     query = {}
     if search:
         # re.escape: the user's text is matched literally, not as a regex pattern.
         pattern = {"$regex": re.escape(search), "$options": "i"}  # "i" = ignore case
         query["$or"] = [{"name": pattern}, {"sku": pattern}]
-    if category:
-        query["category"] = {"$regex": f"^{re.escape(category)}$", "$options": "i"}
+    if category_ids:
+        query["category_id"] = {"$in": category_ids}  # a category and its subcategories
     if status:
         query["status"] = status
     if supplier_id:
@@ -158,3 +158,17 @@ async def delete_category(category_id: str) -> None:
 
 async def count_subcategories(category_id: str) -> int:
     return await _categories().count_documents({"parent_id": category_id})
+
+
+async def subcategory_ids(category_id: str) -> list[str]:
+    children = await _categories().find({"parent_id": category_id}, {"_id": 1}).to_list()
+    return [str(c["_id"]) for c in children]
+
+
+async def count_products_in_category(category_id: str) -> int:
+    return await _products().count_documents({"category_id": category_id})
+
+
+async def rename_category_in_products(category_id: str, name: str) -> None:
+    """Products keep a copy of the category name, so a rename is copied to them too."""
+    await _products().update_many({"category_id": category_id}, {"$set": {"category_name": name}})

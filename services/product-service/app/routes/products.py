@@ -23,19 +23,30 @@ async def _get_or_404(product_id: str) -> dict:
     return product
 
 
-def _sku_prefix(category: str) -> str:
-    """First 3 letters of the category in capitals: "Electronics" -> "ELE"."""
-    letters = re.sub(r"[^A-Za-z]", "", category)
+async def _get_category_or_400(category_id: str) -> dict:
+    category = await db_queries.get_category(category_id)
+    if category is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Category not found")
+    return category
+
+
+def _sku_prefix(category_name: str) -> str:
+    """First 3 letters of the category in capitals: "Mobiles" -> "MOB"."""
+    letters = re.sub(r"[^A-Za-z]", "", category_name)
     return letters[:3].upper() or "PRD"
 
 
 @router.post("", response_model=ProductOut, status_code=status.HTTP_201_CREATED)
 async def create_product(data: ProductCreate, user: dict = Depends(require_permission("product:create"))):
-    prefix = _sku_prefix(data.category)
-    number = await db_queries.next_sequence(prefix)
-    sku = f"{prefix}-{number:06d}"  # e.g. ELE-000001
+    category = await _get_category_or_400(data.category_id)
 
-    product_doc = new_product_document(data.model_dump(), sku=sku, created_by=user["id"])
+    prefix = _sku_prefix(category["name"])
+    number = await db_queries.next_sequence(prefix)
+    sku = f"{prefix}-{number:06d}"  # e.g. MOB-000001
+
+    # Keep a copy of the category name so lists don't need a second lookup.
+    fields = {**data.model_dump(), "category_name": category["name"]}
+    product_doc = new_product_document(fields, sku=sku, created_by=user["id"])
     try:
         product = await db_queries.create(product_doc)
     except db_queries.DuplicateSkuError:
@@ -47,13 +58,17 @@ async def create_product(data: ProductCreate, user: dict = Depends(require_permi
 @router.get("", response_model=ProductList, dependencies=[Depends(require_permission("product:read"))])
 async def list_products(
     search: str | None = Query(None, max_length=100, description="Part of the name or SKU"),
-    category: str | None = None,
+    category_id: str | None = Query(None, description="Also includes its subcategories"),
     status: ProductStatus | None = None,
     supplier_id: str | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ):
-    filters = {"search": search, "category": category, "status": status, "supplier_id": supplier_id}
+    category_ids = None
+    if category_id:
+        category_ids = [category_id] + await db_queries.subcategory_ids(category_id)
+
+    filters = {"search": search, "category_ids": category_ids, "status": status, "supplier_id": supplier_id}
     skip = (page - 1) * page_size
     products = await db_queries.list_products(skip=skip, limit=page_size, **filters)
     total = await db_queries.count(**filters)
@@ -86,6 +101,11 @@ async def update_product(
     selling = fields.get("selling_price", current["selling_price"])
     if selling < cost:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "selling_price cannot be lower than cost_price")
+
+    # Moving to another category: it must exist. The SKU stays the same.
+    if "category_id" in fields:
+        category = await _get_category_or_400(fields["category_id"])
+        fields["category_name"] = category["name"]
 
     product = await db_queries.update(product_id, {**fields, "updated_by": user["id"]})
     if product is None:

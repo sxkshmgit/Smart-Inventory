@@ -58,6 +58,7 @@ async def rename_category(category_id: str, data: CategoryUpdate):
         )
     except db_queries.DuplicateCategoryError:
         raise HTTPException(status.HTTP_409_CONFLICT, f"Category '{data.name}' already exists here")
+    await db_queries.rename_category_in_products(category_id, data.name)
     return category_to_out(category)
 
 
@@ -69,5 +70,8 @@ async def delete_category(category_id: str):
     await _get_or_404(category_id)
     if await db_queries.count_subcategories(category_id) > 0:
         raise HTTPException(status.HTTP_409_CONFLICT, "Delete its subcategories first")
+    used_by = await db_queries.count_products_in_category(category_id)
+    if used_by > 0:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"Category is used by {used_by} product(s)")
     await db_queries.delete_category(category_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

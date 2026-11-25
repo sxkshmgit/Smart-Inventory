@@ -25,7 +25,7 @@ class ProductImage(BaseModel):
 class ProductCreate(BaseModel):
     name: str = Field(min_length=2, max_length=200)
     description: str | None = Field(default=None, max_length=2000)
-    category: str = Field(min_length=2, max_length=100)
+    category_id: str = Field(min_length=1, description="Id from /products/categories")
     brand: str | None = Field(default=None, max_length=100)
     supplier_ids: list[str] = []
     cost_price: float = Field(ge=0)
@@ -50,7 +50,7 @@ class ProductUpdate(BaseModel):
 
     name: str | None = Field(default=None, min_length=2, max_length=200)
     description: str | None = Field(default=None, max_length=2000)
-    category: str | None = Field(default=None, min_length=2, max_length=100)
+    category_id: str | None = Field(default=None, min_length=1)
     brand: str | None = Field(default=None, max_length=100)
     supplier_ids: list[str] | None = None
     cost_price: float | None = Field(default=None, ge=0)
@@ -68,7 +68,8 @@ class ProductOut(BaseModel):
     sku: str
     name: str
     description: str | None
-    category: str
+    category_id: str | None
+    category_name: str | None
     brand: str | None
     supplier_ids: list[str]
     cost_price: float

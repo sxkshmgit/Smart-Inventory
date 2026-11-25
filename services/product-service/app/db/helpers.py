@@ -24,7 +24,9 @@ def product_to_out(doc: dict) -> dict:
         "sku": doc["sku"],
         "name": doc["name"],
         "description": doc.get("description"),
-        "category": doc["category"],
+        "category_id": doc.get("category_id"),
+        # Older products only have a free-text "category".
+        "category_name": doc.get("category_name", doc.get("category")),
         "brand": doc.get("brand"),
         "supplier_ids": doc.get("supplier_ids", []),
         "cost_price": doc["cost_price"],
