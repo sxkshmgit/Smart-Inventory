@@ -6,7 +6,7 @@ from fastapi import FastAPI
 
 from app.core.database import close_db, connect_db
 from app.db import db_queries
-from app.routes import products
+from app.routes import categories, products
 
 
 @asynccontextmanager
@@ -23,6 +23,8 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Categories first: otherwise "/products/categories" would match "/products/{product_id}".
+app.include_router(categories.router, prefix="/products/categories")
 app.include_router(products.router, prefix="/products")
 
 

@@ -92,3 +92,27 @@ class ProductList(BaseModel):
     page: int
     page_size: int
     pages: int
+
+
+# ---------- Categories ----------
+
+class CategoryCreate(BaseModel):
+    """No parent_id = main category (Electronics). With parent_id = subcategory (Mobiles)."""
+
+    name: str = Field(min_length=2, max_length=100)
+    parent_id: str | None = None
+
+
+class CategoryUpdate(BaseModel):
+    """Only the name can be changed. Moving a category to another parent is not allowed."""
+
+    name: str = Field(min_length=2, max_length=100)
+
+
+class CategoryOut(BaseModel):
+    id: str
+    name: str
+    parent_id: str | None
+    created_by: str
+    created_at: datetime
+    updated_at: datetime

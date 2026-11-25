@@ -1,4 +1,4 @@
-"""All MongoDB access for products. No other file talks to the products collection."""
+"""All MongoDB access for products and categories. No other file talks to the database."""
 
 import re
 from datetime import datetime, timezone
@@ -15,6 +15,10 @@ class DuplicateSkuError(Exception):
     """Raised when a product with the same SKU already exists."""
 
 
+class DuplicateCategoryError(Exception):
+    """Raised when a category with the same name already exists under the same parent."""
+
+
 def _products():
     return get_db()["products"]
 
@@ -24,10 +28,16 @@ def _counters():
     return get_db()["counters"]
 
 
+def _categories():
+    return get_db()["categories"]
+
+
 async def create_indexes() -> None:
     await _products().create_index("sku", unique=True)
     await _products().create_index("name")
     await _products().create_index("category")
+    # Same name can't appear twice under the same parent (top-level ones have parent_id None).
+    await _categories().create_index([("parent_id", 1), ("name_lower", 1)], unique=True)
 
 
 async def next_sequence(prefix: str) -> int:
@@ -104,3 +114,47 @@ async def update(product_id: str, fields: dict) -> dict | None:
         {"$set": {**fields, "updated_at": datetime.now(timezone.utc)}},
         return_document=ReturnDocument.AFTER,
     )
+
+
+# ---------- Categories ----------
+
+async def create_category(category_doc: dict) -> dict:
+    try:
+        result = await _categories().insert_one(category_doc)
+    except DuplicateKeyError:
+        raise DuplicateCategoryError(category_doc["name"])
+    return {**category_doc, "_id": result.inserted_id}
+
+
+async def get_category(category_id: str) -> dict | None:
+    oid = _to_object_id(category_id)
+    if oid is None:
+        return None
+    return await _categories().find_one({"_id": oid})
+
+
+async def list_categories(parent_id: str | None) -> list[dict]:
+    """parent_id None = main categories; otherwise the subcategories of that parent. A-Z by name."""
+    return await _categories().find({"parent_id": parent_id}).sort("name_lower", 1).to_list()
+
+
+async def update_category(category_id: str, fields: dict) -> dict | None:
+    oid = _to_object_id(category_id)
+    if oid is None:
+        return None
+    try:
+        return await _categories().find_one_and_update(
+            {"_id": oid},
+            {"$set": {**fields, "updated_at": datetime.now(timezone.utc)}},
+            return_document=ReturnDocument.AFTER,
+        )
+    except DuplicateKeyError:
+        raise DuplicateCategoryError(fields.get("name"))
+
+
+async def delete_category(category_id: str) -> None:
+    await _categories().delete_one({"_id": _to_object_id(category_id)})
+
+
+async def count_subcategories(category_id: str) -> int:
+    return await _categories().count_documents({"parent_id": category_id})

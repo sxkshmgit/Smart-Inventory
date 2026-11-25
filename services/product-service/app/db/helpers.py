@@ -1,4 +1,4 @@
-"""Shape of a product as stored in MongoDB, and how it is turned into API output."""
+"""Shape of products and categories as stored in MongoDB, and how they are turned into API output."""
 
 from datetime import datetime, timezone
 
@@ -36,6 +36,30 @@ def product_to_out(doc: dict) -> dict:
         "status": doc["status"],
         "created_by": doc["created_by"],
         "updated_by": doc["updated_by"],
+        "created_at": doc["created_at"],
+        "updated_at": doc["updated_at"],
+    }
+
+
+def new_category_document(name: str, parent_id: str | None, created_by: str) -> dict:
+    now = datetime.now(timezone.utc)
+    return {
+        "name": name,
+        # Lower-case copy for the unique index: "Electronics" and "electronics" count as the same.
+        "name_lower": name.lower(),
+        "parent_id": parent_id,
+        "created_by": created_by,
+        "created_at": now,
+        "updated_at": now,
+    }
+
+
+def category_to_out(doc: dict) -> dict:
+    return {
+        "id": str(doc["_id"]),
+        "name": doc["name"],
+        "parent_id": doc.get("parent_id"),
+        "created_by": doc["created_by"],
         "created_at": doc["created_at"],
         "updated_at": doc["updated_at"],
     }
