@@ -11,8 +11,8 @@ import asyncio
 from app.core.database import close_db, connect_db
 from app.core.permissions import Role
 from app.core.security import hash_password
-from app.db import user_repository
-from app.db.models import new_user_document
+from app.db import db_queries
+from app.db.helpers import new_user_document
 
 SEED_PASSWORD = "Password123!"
 
@@ -27,14 +27,14 @@ SEED_USERS = [
 
 async def main() -> None:
     await connect_db()
-    await user_repository.create_indexes()
+    await db_queries.create_indexes()
     try:
         for email, full_name, role in SEED_USERS:
-            if await user_repository.get_by_email(email):
+            if await db_queries.get_by_email(email):
                 print(f"skip    {email} (already exists)")
                 continue
             user_doc = new_user_document(email, hash_password(SEED_PASSWORD), full_name, role)
-            await user_repository.create(user_doc)
+            await db_queries.create(user_doc)
             print(f"created {email} ({role})")
     finally:
         await close_db()

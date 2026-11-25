@@ -5,14 +5,14 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.core.database import close_db, connect_db
-from app.db import user_repository
+from app.db import db_queries
 from app.routes import auth, users
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await connect_db()
-    await user_repository.create_indexes()
+    await db_queries.create_indexes()
     yield
     await close_db()
 
