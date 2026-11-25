@@ -10,7 +10,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.permissions import has_permission
 from app.core.security import ACCESS_TOKEN, decode_token
-from app.db import user_repository
+from app.db import db_queries
 
 # Reads the "Authorization: Bearer <token>" header and adds the Authorize button to /docs.
 bearer_scheme = HTTPBearer()
@@ -26,7 +26,7 @@ async def get_current_user(
     """
     payload = decode_token(credentials.credentials, ACCESS_TOKEN)
 
-    user = await user_repository.get_by_id(payload["sub"])
+    user = await db_queries.get_by_id(payload["sub"])
     if user is None or not user["is_active"]:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User not found or deactivated")
     return user
