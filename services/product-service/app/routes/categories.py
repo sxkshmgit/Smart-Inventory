@@ -5,7 +5,7 @@ Category model from db/model.py.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.db import db_queries
 from app.db.model import Category
@@ -17,6 +17,9 @@ router = APIRouter(tags=["Categories"])
 # ---------- create ----------
 class CategoryCreate(BaseModel):
     """Body of POST /products/categories."""
+
+    # Trim spaces first: " Electronics " is the same as "Electronics", and "   " is too short.
+    model_config = ConfigDict(str_strip_whitespace=True)
 
     name: str = Field(min_length=2, max_length=100)
 
