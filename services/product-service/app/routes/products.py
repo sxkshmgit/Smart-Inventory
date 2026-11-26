@@ -24,6 +24,7 @@ async def _get_or_404(product_id: str) -> dict:
 
 
 async def _get_category_or_400(category_id: str) -> dict:
+    """The category a product points to must exist."""
     category = await db_queries.get_category(category_id)
     if category is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Category not found")
@@ -31,7 +32,7 @@ async def _get_category_or_400(category_id: str) -> dict:
 
 
 def _sku_prefix(category_name: str) -> str:
-    """First 3 letters of the category in capitals: "Mobiles" -> "MOB"."""
+    """First 3 letters of the category name in capitals: "Electronics" -> "ELE"."""
     letters = re.sub(r"[^A-Za-z]", "", category_name)
     return letters[:3].upper() or "PRD"
 
@@ -42,9 +43,10 @@ async def create_product(data: ProductCreate, user: dict = Depends(require_permi
 
     prefix = _sku_prefix(category["name"])
     number = await db_queries.next_sequence(prefix)
-    sku = f"{prefix}-{number:06d}"  # e.g. MOB-000001
+    sku = f"{prefix}-{number:06d}"  # e.g. ELE-000001
 
-    # Keep a copy of the category name so lists don't need a second lookup.
+    # Keep a copy of the category name so product lists don't need a second lookup.
+    # Safe because categories can't be renamed.
     fields = {**data.model_dump(), "category_name": category["name"]}
     product_doc = new_product_document(fields, sku=sku, created_by=user["id"])
     try:
@@ -58,17 +60,13 @@ async def create_product(data: ProductCreate, user: dict = Depends(require_permi
 @router.get("", response_model=ProductList, dependencies=[Depends(require_permission("product:read"))])
 async def list_products(
     search: str | None = Query(None, max_length=100, description="Part of the name or SKU"),
-    category_id: str | None = Query(None, description="Also includes its subcategories"),
+    category_id: str | None = None,
     status: ProductStatus | None = None,
     supplier_id: str | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ):
-    category_ids = None
-    if category_id:
-        category_ids = [category_id] + await db_queries.subcategory_ids(category_id)
-
-    filters = {"search": search, "category_ids": category_ids, "status": status, "supplier_id": supplier_id}
+    filters = {"search": search, "category_id": category_id, "status": status, "supplier_id": supplier_id}
     skip = (page - 1) * page_size
     products = await db_queries.list_products(skip=skip, limit=page_size, **filters)
     total = await db_queries.count(**filters)
