@@ -1,15 +1,88 @@
-"""Request and response shapes for /products and /products/categories.
+"""What we store in MongoDB, one model per collection.
 
-FastAPI validates every request body against these classes. Bad input never
-reaches our code: the client gets a 422 with the reason.
+The same models are also what the API returns (used as response_model), so a
+field that isn't here can never reach the client.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
+from decimal import Decimal
 from enum import StrEnum
+from typing import Annotated, Generic, TypeVar
 
-from pydantic import BaseModel, Field, model_validator
+from bson import Decimal128, ObjectId
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
 
+def _to_str(value):
+    """Mongo's ObjectId -> plain string."""
+    if isinstance(value, ObjectId):
+        return str(value)
+    return value
+
+
+def _to_decimal(value):
+    """Mongo's Decimal128 -> Python Decimal."""
+    if isinstance(value, Decimal128):
+        return value.to_decimal()
+    return value
+
+
+# An id that is an ObjectId in MongoDB but a string in Python and in the API.
+PyObjectId = Annotated[str, BeforeValidator(_to_str)]
+
+# Money is a Decimal, not a float: floats round (0.1 + 0.2 = 0.30000000000000004).
+Money = Annotated[Decimal, BeforeValidator(_to_decimal), Field(ge=0, decimal_places=2)]
+
+
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+class MongoModel(BaseModel):
+    """Base class: reads Mongo's `_id` into `id`, and turns the model back into a Mongo dict."""
+
+    # populate_by_name: the model can be filled with "id" as well as "_id".
+    # use_enum_values: enums (like status) are stored as plain strings.
+    model_config = ConfigDict(populate_by_name=True, use_enum_values=True)
+
+    # validation_alias: read from "_id" in MongoDB, but shown as "id" in the API.
+    id: PyObjectId | None = Field(default=None, validation_alias="_id")
+
+    def to_mongo(self) -> dict:
+        """Dict ready for insert_one(). Without an id, MongoDB generates one."""
+        data = self.model_dump(exclude={"id"})
+        if self.id is not None:
+            data["_id"] = ObjectId(self.id)
+        return data
+
+
+T = TypeVar("T")
+
+
+class Page(BaseModel, Generic[T]):
+    """One page of results, e.g. Page[Product]. Used by list endpoints."""
+
+    items: list[T]
+    total: int  # matches across all pages
+    page: int
+    page_size: int
+    pages: int
+
+
+# ---------- Category ----------
+class Category(MongoModel):
+    name: str
+    created_by: str
+    created_at: datetime = Field(default_factory=utcnow)
+
+    def to_mongo(self) -> dict:
+        data = super().to_mongo()
+        # Stored only for the unique index: "Electronics" and "electronics" are the same category.
+        data["name_lower"] = self.name.lower()
+        return data
+
+
+# ---------- Product ----------
 class ProductStatus(StrEnum):
     ACTIVE = "active"
     INACTIVE = "inactive"
@@ -22,87 +95,30 @@ class ProductImage(BaseModel):
     alt: str | None = Field(default=None, max_length=200)
 
 
-class ProductCreate(BaseModel):
-    name: str = Field(min_length=2, max_length=200)
-    description: str | None = Field(default=None, max_length=2000)
-    category_id: str = Field(min_length=1, description="Id from GET /products/categories")
-    brand: str | None = Field(default=None, max_length=100)
-    supplier_ids: list[str] = []
-    cost_price: float = Field(ge=0)
-    selling_price: float = Field(ge=0)
-    reorder_level: int = Field(default=0, ge=0)
-    tax_percentage: float = Field(default=0, ge=0, le=100)
-    unit: str = Field(default="pcs", min_length=1, max_length=20)
-    images: list[ProductImage] = []
-
-    @model_validator(mode="after")
-    def selling_not_below_cost(self):
-        if self.selling_price < self.cost_price:
-            raise ValueError("selling_price cannot be lower than cost_price")
-        return self
-
-
-class ProductUpdate(BaseModel):
-    """Every field is optional: only the fields sent are changed.
-
-    sku, status and created_by can't be changed here.
-    """
-
-    name: str | None = Field(default=None, min_length=2, max_length=200)
-    description: str | None = Field(default=None, max_length=2000)
-    category_id: str | None = Field(default=None, min_length=1)
-    brand: str | None = Field(default=None, max_length=100)
-    supplier_ids: list[str] | None = None
-    cost_price: float | None = Field(default=None, ge=0)
-    selling_price: float | None = Field(default=None, ge=0)
-    reorder_level: int | None = Field(default=None, ge=0)
-    tax_percentage: float | None = Field(default=None, ge=0, le=100)
-    unit: str | None = Field(default=None, min_length=1, max_length=20)
-    images: list[ProductImage] | None = None
-
-
-class ProductOut(BaseModel):
-    """What the API returns for a product."""
-
-    id: str
+class Product(MongoModel):
     sku: str
     name: str
-    description: str | None
-    category_id: str | None
-    category_name: str | None
-    brand: str | None
-    supplier_ids: list[str]
-    cost_price: float
-    selling_price: float
-    reorder_level: int
-    tax_percentage: float
-    unit: str
-    images: list[ProductImage]
-    status: ProductStatus
+    description: str | None = None
+    category_id: PyObjectId  # reference to Category.id
+    category_name: str  # copy for display; safe because categories can't be renamed
+    brand: str | None = None
+    supplier_ids: list[str] = []
+    cost_price: Money
+    selling_price: Money
+    reorder_level: int = 0
+    tax_percentage: float = 0
+    unit: str = "pcs"
+    images: list[ProductImage] = []
+    status: ProductStatus = ProductStatus.ACTIVE
     created_by: str
     updated_by: str
-    created_at: datetime
-    updated_at: datetime
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
 
-
-class ProductList(BaseModel):
-    """One page of products."""
-
-    items: list[ProductOut]
-    total: int
-    page: int
-    page_size: int
-    pages: int
-
-
-class CategoryCreate(BaseModel):
-    name: str = Field(min_length=2, max_length=100)
-
-
-class CategoryOut(BaseModel):
-    """What the API returns for a category."""
-
-    id: str
-    name: str
-    created_by: str
-    created_at: datetime
+    def to_mongo(self) -> dict:
+        data = super().to_mongo()
+        # BSON can't store Python Decimal; use Decimal128.
+        data["cost_price"] = Decimal128(str(self.cost_price))
+        data["selling_price"] = Decimal128(str(self.selling_price))
+        data["category_id"] = ObjectId(self.category_id)
+        return data

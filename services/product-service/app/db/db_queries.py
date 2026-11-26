@@ -1,7 +1,9 @@
-"""All MongoDB access for products and categories. No other file talks to these collections."""
+"""All MongoDB access for products and categories. No other file talks to these collections.
+
+Functions take and return the models from db/model.py, never raw Mongo dicts.
+"""
 
 import re
-from datetime import datetime, timezone
 
 from bson import ObjectId
 from bson.errors import InvalidId
@@ -9,6 +11,7 @@ from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
 from app.core.database import get_db
+from app.db.model import Category, Product, utcnow
 
 
 class DuplicateSkuError(Exception):
@@ -32,11 +35,22 @@ def _categories():
     return get_db()["categories"]
 
 
+def _to_object_id(value: str) -> ObjectId | None:
+    """Turn a string id into an ObjectId, or None if it isn't a valid id."""
+    try:
+        return ObjectId(value)
+    except (InvalidId, TypeError):
+        return None
+
+
 async def create_indexes() -> None:
     await _products().create_index("sku", unique=True)
     await _products().create_index("name")
     await _products().create_index("category_id")
     await _categories().create_index("name_lower", unique=True)
+
+
+# ---------- products ----------
 
 
 async def next_sequence(prefix: str) -> int:
@@ -54,12 +68,13 @@ async def next_sequence(prefix: str) -> int:
     return counter["value"]
 
 
-async def create(product_doc: dict) -> dict:
+async def create(product: Product) -> Product:
+    """Insert the product and return it with its new id."""
     try:
-        result = await _products().insert_one(product_doc)
+        result = await _products().insert_one(product.to_mongo())
     except DuplicateKeyError:
-        raise DuplicateSkuError(product_doc["sku"])
-    return {**product_doc, "_id": result.inserted_id}
+        raise DuplicateSkuError(product.sku)
+    return product.model_copy(update={"id": str(result.inserted_id)})
 
 
 def _build_query(search=None, category_id=None, status=None, supplier_id=None) -> dict:
@@ -70,7 +85,8 @@ def _build_query(search=None, category_id=None, status=None, supplier_id=None) -
         pattern = {"$regex": re.escape(search), "$options": "i"}  # "i" = ignore case
         query["$or"] = [{"name": pattern}, {"sku": pattern}]
     if category_id:
-        query["category_id"] = category_id
+        # Stored as an ObjectId. An invalid id stays a string and matches nothing.
+        query["category_id"] = _to_object_id(category_id) or category_id
     if status:
         query["status"] = status
     if supplier_id:
@@ -78,69 +94,65 @@ def _build_query(search=None, category_id=None, status=None, supplier_id=None) -
     return query
 
 
-async def list_products(skip: int, limit: int, **filters) -> list[dict]:
+async def list_products(skip: int, limit: int, **filters) -> list[Product]:
     """Newest first. `filters` are the same keywords as _build_query."""
     cursor = _products().find(_build_query(**filters)).sort("created_at", -1).skip(skip).limit(limit)
-    return await cursor.to_list()
+    return [Product.model_validate(doc) for doc in await cursor.to_list()]
 
 
 async def count(**filters) -> int:
     return await _products().count_documents(_build_query(**filters))
 
 
-def _to_object_id(product_id: str) -> ObjectId | None:
-    """Turn a string id into an ObjectId, or None if it isn't a valid id."""
-    try:
-        return ObjectId(product_id)
-    except (InvalidId, TypeError):
-        return None
-
-
-async def get_by_id(product_id: str) -> dict | None:
+async def get_by_id(product_id: str) -> Product | None:
     oid = _to_object_id(product_id)
     if oid is None:
         return None
-    return await _products().find_one({"_id": oid})
+    doc = await _products().find_one({"_id": oid})
+    return Product.model_validate(doc) if doc else None
 
 
-async def update(product_id: str, fields: dict) -> dict | None:
-    """Set the given fields and updated_at. Return the updated product, or None if not found."""
-    oid = _to_object_id(product_id)
-    if oid is None:
-        return None
-    return await _products().find_one_and_update(
-        {"_id": oid},
-        {"$set": {**fields, "updated_at": datetime.now(timezone.utc)}},
+async def update(product: Product) -> Product | None:
+    """Save the changed product (with a new updated_at). Return it, or None if not found."""
+    data = product.to_mongo()
+    data.pop("_id")  # the id itself never changes
+    data["updated_at"] = utcnow()
+    doc = await _products().find_one_and_update(
+        {"_id": ObjectId(product.id)},
+        {"$set": data},
         return_document=ReturnDocument.AFTER,
     )
+    return Product.model_validate(doc) if doc else None
 
 
 # ---------- categories ----------
 
 
-async def create_category(category_doc: dict) -> dict:
+async def create_category(category: Category) -> Category:
     try:
-        result = await _categories().insert_one(category_doc)
+        result = await _categories().insert_one(category.to_mongo())
     except DuplicateKeyError:
-        raise DuplicateCategoryError(category_doc["name"])
-    return {**category_doc, "_id": result.inserted_id}
+        raise DuplicateCategoryError(category.name)
+    return category.model_copy(update={"id": str(result.inserted_id)})
 
 
-async def list_categories() -> list[dict]:
+async def list_categories() -> list[Category]:
     """All categories, A to Z."""
-    return await _categories().find().sort("name_lower", 1).to_list()
+    docs = await _categories().find().sort("name_lower", 1).to_list()
+    return [Category.model_validate(doc) for doc in docs]
 
 
-async def get_category(category_id: str) -> dict | None:
+async def get_category(category_id: str) -> Category | None:
     oid = _to_object_id(category_id)
     if oid is None:
         return None
-    return await _categories().find_one({"_id": oid})
+    doc = await _categories().find_one({"_id": oid})
+    return Category.model_validate(doc) if doc else None
 
 
 async def count_products_in_category(category_id: str) -> int:
     """How many products point to this category, inactive ones included."""
-    return await _products().count_documents({"category_id": category_id})
+    return await _products().count_documents({"category_id": _to_object_id(category_id)})
 
 
 async def delete_category(category_id: str) -> bool:
