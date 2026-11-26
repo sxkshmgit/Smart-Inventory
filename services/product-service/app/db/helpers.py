@@ -24,9 +24,9 @@ def product_to_out(doc: dict) -> dict:
         "sku": doc["sku"],
         "name": doc["name"],
         "description": doc.get("description"),
+        # .get(): products made before categories existed have no category_id.
         "category_id": doc.get("category_id"),
-        # Older products only have a free-text "category".
-        "category_name": doc.get("category_name", doc.get("category")),
+        "category_name": doc.get("category_name"),
         "brand": doc.get("brand"),
         "supplier_ids": doc.get("supplier_ids", []),
         "cost_price": doc["cost_price"],
@@ -43,16 +43,16 @@ def product_to_out(doc: dict) -> dict:
     }
 
 
-def new_category_document(name: str, parent_id: str | None, created_by: str) -> dict:
-    now = datetime.now(timezone.utc)
+def new_category_document(name: str, created_by: str) -> dict:
+    """Build a new category document.
+
+    name_lower is stored for the unique index: "Electronics" and "electronics" are the same category.
+    """
     return {
         "name": name,
-        # Lower-case copy for the unique index: "Electronics" and "electronics" count as the same.
         "name_lower": name.lower(),
-        "parent_id": parent_id,
         "created_by": created_by,
-        "created_at": now,
-        "updated_at": now,
+        "created_at": datetime.now(timezone.utc),
     }
 
 
@@ -60,8 +60,6 @@ def category_to_out(doc: dict) -> dict:
     return {
         "id": str(doc["_id"]),
         "name": doc["name"],
-        "parent_id": doc.get("parent_id"),
         "created_by": doc["created_by"],
         "created_at": doc["created_at"],
-        "updated_at": doc["updated_at"],
     }

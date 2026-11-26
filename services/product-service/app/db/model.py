@@ -1,4 +1,4 @@
-"""Request and response shapes for /products.
+"""Request and response shapes for /products and /products/categories.
 
 FastAPI validates every request body against these classes. Bad input never
 reaches our code: the client gets a 422 with the reason.
@@ -25,7 +25,7 @@ class ProductImage(BaseModel):
 class ProductCreate(BaseModel):
     name: str = Field(min_length=2, max_length=200)
     description: str | None = Field(default=None, max_length=2000)
-    category_id: str = Field(min_length=1, description="Id from /products/categories")
+    category_id: str = Field(min_length=1, description="Id from GET /products/categories")
     brand: str | None = Field(default=None, max_length=100)
     supplier_ids: list[str] = []
     cost_price: float = Field(ge=0)
@@ -95,25 +95,14 @@ class ProductList(BaseModel):
     pages: int
 
 
-# ---------- Categories ----------
-
 class CategoryCreate(BaseModel):
-    """No parent_id = main category (Electronics). With parent_id = subcategory (Mobiles)."""
-
-    name: str = Field(min_length=2, max_length=100)
-    parent_id: str | None = None
-
-
-class CategoryUpdate(BaseModel):
-    """Only the name can be changed. Moving a category to another parent is not allowed."""
-
     name: str = Field(min_length=2, max_length=100)
 
 
 class CategoryOut(BaseModel):
+    """What the API returns for a category."""
+
     id: str
     name: str
-    parent_id: str | None
     created_by: str
     created_at: datetime
-    updated_at: datetime

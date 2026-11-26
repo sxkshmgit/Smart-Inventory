@@ -1,4 +1,4 @@
-"""All MongoDB access for products and categories. No other file talks to the database."""
+"""All MongoDB access for products and categories. No other file talks to these collections."""
 
 import re
 from datetime import datetime, timezone
@@ -16,7 +16,7 @@ class DuplicateSkuError(Exception):
 
 
 class DuplicateCategoryError(Exception):
-    """Raised when a category with the same name already exists under the same parent."""
+    """Raised when a category with the same name (any case) already exists."""
 
 
 def _products():
@@ -36,8 +36,7 @@ async def create_indexes() -> None:
     await _products().create_index("sku", unique=True)
     await _products().create_index("name")
     await _products().create_index("category_id")
-    # Same name can't appear twice under the same parent (top-level ones have parent_id None).
-    await _categories().create_index([("parent_id", 1), ("name_lower", 1)], unique=True)
+    await _categories().create_index("name_lower", unique=True)
 
 
 async def next_sequence(prefix: str) -> int:
@@ -63,15 +62,15 @@ async def create(product_doc: dict) -> dict:
     return {**product_doc, "_id": result.inserted_id}
 
 
-def _build_query(search=None, category_ids=None, status=None, supplier_id=None) -> dict:
+def _build_query(search=None, category_id=None, status=None, supplier_id=None) -> dict:
     """Turn the optional filters into a MongoDB query. Filters that are None are skipped."""
     query = {}
     if search:
         # re.escape: the user's text is matched literally, not as a regex pattern.
         pattern = {"$regex": re.escape(search), "$options": "i"}  # "i" = ignore case
         query["$or"] = [{"name": pattern}, {"sku": pattern}]
-    if category_ids:
-        query["category_id"] = {"$in": category_ids}  # a category and its subcategories
+    if category_id:
+        query["category_id"] = category_id
     if status:
         query["status"] = status
     if supplier_id:
@@ -116,7 +115,8 @@ async def update(product_id: str, fields: dict) -> dict | None:
     )
 
 
-# ---------- Categories ----------
+# ---------- categories ----------
+
 
 async def create_category(category_doc: dict) -> dict:
     try:
@@ -126,6 +126,11 @@ async def create_category(category_doc: dict) -> dict:
     return {**category_doc, "_id": result.inserted_id}
 
 
+async def list_categories() -> list[dict]:
+    """All categories, A to Z."""
+    return await _categories().find().sort("name_lower", 1).to_list()
+
+
 async def get_category(category_id: str) -> dict | None:
     oid = _to_object_id(category_id)
     if oid is None:
@@ -133,42 +138,15 @@ async def get_category(category_id: str) -> dict | None:
     return await _categories().find_one({"_id": oid})
 
 
-async def list_categories(parent_id: str | None) -> list[dict]:
-    """parent_id None = main categories; otherwise the subcategories of that parent. A-Z by name."""
-    return await _categories().find({"parent_id": parent_id}).sort("name_lower", 1).to_list()
-
-
-async def update_category(category_id: str, fields: dict) -> dict | None:
-    oid = _to_object_id(category_id)
-    if oid is None:
-        return None
-    try:
-        return await _categories().find_one_and_update(
-            {"_id": oid},
-            {"$set": {**fields, "updated_at": datetime.now(timezone.utc)}},
-            return_document=ReturnDocument.AFTER,
-        )
-    except DuplicateKeyError:
-        raise DuplicateCategoryError(fields.get("name"))
-
-
-async def delete_category(category_id: str) -> None:
-    await _categories().delete_one({"_id": _to_object_id(category_id)})
-
-
-async def count_subcategories(category_id: str) -> int:
-    return await _categories().count_documents({"parent_id": category_id})
-
-
-async def subcategory_ids(category_id: str) -> list[str]:
-    children = await _categories().find({"parent_id": category_id}, {"_id": 1}).to_list()
-    return [str(c["_id"]) for c in children]
-
-
 async def count_products_in_category(category_id: str) -> int:
+    """How many products point to this category, inactive ones included."""
     return await _products().count_documents({"category_id": category_id})
 
 
-async def rename_category_in_products(category_id: str, name: str) -> None:
-    """Products keep a copy of the category name, so a rename is copied to them too."""
-    await _products().update_many({"category_id": category_id}, {"$set": {"category_name": name}})
+async def delete_category(category_id: str) -> bool:
+    """Remove the category for good. Return True if something was deleted."""
+    oid = _to_object_id(category_id)
+    if oid is None:
+        return False
+    result = await _categories().delete_one({"_id": oid})
+    return result.deleted_count == 1
