@@ -12,7 +12,7 @@ from app.core.database import close_db, connect_db
 from app.core.permissions import Role
 from app.core.security import hash_password
 from app.db import db_queries
-from app.db.helpers import new_user_document
+from app.db.model import User
 
 SEED_PASSWORD = "Password123!"
 
@@ -33,8 +33,8 @@ async def main() -> None:
             if await db_queries.get_by_email(email):
                 print(f"skip    {email} (already exists)")
                 continue
-            user_doc = new_user_document(email, hash_password(SEED_PASSWORD), full_name, role)
-            await db_queries.create(user_doc)
+            user = User(email=email, hashed_password=hash_password(SEED_PASSWORD), full_name=full_name, role=role)
+            await db_queries.create(user)
             print(f"created {email} ({role})")
     finally:
         await close_db()
