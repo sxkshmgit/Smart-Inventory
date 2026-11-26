@@ -1,87 +1,85 @@
-"""What the API accepts (requests) and returns (responses).
+"""What we store in MongoDB, one model per collection.
 
-FastAPI checks every request against these models and answers 422 if it doesn't fit.
+The same models are also what the API returns (used as response_model), so a
+field that isn't here, or is marked exclude=True, can never reach the client.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Annotated, Generic, TypeVar
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from bson import ObjectId
+from pydantic import BaseModel, BeforeValidator, ConfigDict, EmailStr, Field, field_validator
 
 from app.core.permissions import Role
 
 
-class UserRegister(BaseModel):
-    """Body of POST /auth/register. No role field: new users are always viewers."""
-
-    email: EmailStr
-    password: str = Field(min_length=8, max_length=128)
-    full_name: str = Field(min_length=2, max_length=100)
-
-    @field_validator("password")
-    @classmethod
-    def password_strength(cls, value: str) -> str:
-        if not any(c.isupper() for c in value):
-            raise ValueError("Password must contain an uppercase letter")
-        if not any(c.islower() for c in value):
-            raise ValueError("Password must contain a lowercase letter")
-        if not any(c.isdigit() for c in value):
-            raise ValueError("Password must contain a digit")
-        return value
+def _to_str(value):
+    """Mongo's ObjectId -> plain string."""
+    if isinstance(value, ObjectId):
+        return str(value)
+    return value
 
 
-class UserCreate(UserRegister):
-    """Body of POST /users (admin only). Same as register, plus role and warehouses."""
-
-    role: Role = Role.VIEWER
-    warehouse_ids: list[str] = []
+# An id that is an ObjectId in MongoDB but a string in Python and in the API.
+PyObjectId = Annotated[str, BeforeValidator(_to_str)]
 
 
-class UserUpdate(BaseModel):
-    """Body of PATCH /users/{id}. Every field is optional: only sent fields change."""
-
-    full_name: str | None = Field(default=None, min_length=2, max_length=100)
-    warehouse_ids: list[str] | None = None
-    is_active: bool | None = None
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 
-class RoleUpdate(BaseModel):
-    role: Role
+class MongoModel(BaseModel):
+    """Base class: reads Mongo's `_id` into `id`, and turns the model back into a Mongo dict."""
+
+    # populate_by_name: the model can be filled with "id" as well as "_id".
+    # use_enum_values: enums (like role) are stored as plain strings.
+    model_config = ConfigDict(populate_by_name=True, use_enum_values=True)
+
+    # validation_alias: read from "_id" in MongoDB, but shown as "id" in the API.
+    id: PyObjectId | None = Field(default=None, validation_alias="_id")
+
+    def to_mongo(self) -> dict:
+        """Dict ready for insert_one(). Without an id, MongoDB generates one."""
+        data = self.model_dump(exclude={"id"})
+        if self.id is not None:
+            data["_id"] = ObjectId(self.id)
+        return data
 
 
-class LoginRequest(BaseModel):
-    """Body of POST /auth/login. No strength rules here, so login never reveals them."""
-
-    email: EmailStr
-    password: str
+T = TypeVar("T")
 
 
-class RefreshRequest(BaseModel):
-    refresh_token: str
+class Page(BaseModel, Generic[T]):
+    """One page of results, e.g. Page[User]. Used by list endpoints."""
 
-
-class TokenPair(BaseModel):
-    access_token: str
-    refresh_token: str
-    token_type: str = "bearer"
-
-
-class UserOut(BaseModel):
-    """A user as returned by the API. There is deliberately no password field."""
-
-    id: str
-    email: EmailStr
-    full_name: str
-    role: Role
-    warehouse_ids: list[str]
-    is_active: bool
-    created_at: datetime
-    updated_at: datetime
-    created_by: str | None = None
-
-
-class UserList(BaseModel):
-    items: list[UserOut]
-    total: int  # users matching the filter, across all pages
+    items: list[T]
+    total: int  # matches across all pages
     page: int
     page_size: int
     pages: int
+
+
+# ---------- User ----------
+class User(MongoModel):
+    email: EmailStr
+    # exclude=True: never part of model_dump(), so never in any API response.
+    # to_mongo() adds it back when saving.
+    hashed_password: str = Field(exclude=True)
+    full_name: str
+    role: Role = Role.VIEWER
+    warehouse_ids: list[str] = []
+    is_active: bool = True
+    created_by: str | None = None  # admin's id, or None if self-registered
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
+
+    @field_validator("email")
+    @classmethod
+    def lowercase_email(cls, value: str) -> str:
+        # "A@x.com" and "a@x.com" are the same user.
+        return value.lower()
+
+    def to_mongo(self) -> dict:
+        data = super().to_mongo()
+        data["hashed_password"] = self.hashed_password
+        return data

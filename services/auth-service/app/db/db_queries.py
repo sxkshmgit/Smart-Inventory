@@ -1,6 +1,7 @@
-"""The only code that reads or writes the `users` collection."""
+"""The only code that reads or writes the `users` collection.
 
-from datetime import datetime, timezone
+Functions take and return the User model from db/model.py, never raw Mongo dicts.
+"""
 
 from bson import ObjectId
 from bson.errors import InvalidId
@@ -8,6 +9,7 @@ from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
 from app.core.database import get_db
+from app.db.model import User, utcnow
 
 
 class DuplicateEmailError(Exception):
@@ -16,6 +18,13 @@ class DuplicateEmailError(Exception):
 
 def _users():
     return get_db()["users"]
+
+
+def _to_object_id(user_id: str) -> ObjectId | None:
+    try:
+        return ObjectId(user_id)
+    except (InvalidId, TypeError):
+        return None
 
 
 async def create_indexes() -> None:
@@ -28,39 +37,34 @@ async def create_indexes() -> None:
     await _users().create_index("role")
 
 
-async def create(user_doc: dict) -> dict:
-    """Insert a new user and return it with its new `_id`."""
+async def create(user: User) -> User:
+    """Insert a new user and return it with its new id."""
     try:
-        result = await _users().insert_one(user_doc)
+        result = await _users().insert_one(user.to_mongo())
     except DuplicateKeyError:
-        raise DuplicateEmailError(user_doc["email"])
-    return {**user_doc, "_id": result.inserted_id}
+        raise DuplicateEmailError(user.email)
+    return user.model_copy(update={"id": str(result.inserted_id)})
 
 
-async def get_by_email(email: str) -> dict | None:
-    return await _users().find_one({"email": email.lower()})
+async def get_by_email(email: str) -> User | None:
+    doc = await _users().find_one({"email": email.lower()})
+    return User.model_validate(doc) if doc else None
 
 
-def _to_object_id(user_id: str) -> ObjectId | None:
-    try:
-        return ObjectId(user_id)
-    except (InvalidId, TypeError):
-        return None
-
-
-async def get_by_id(user_id: str) -> dict | None:
+async def get_by_id(user_id: str) -> User | None:
     """Returns None if the id is not a valid ObjectId or no user has it."""
     object_id = _to_object_id(user_id)
     if object_id is None:
         return None
-    return await _users().find_one({"_id": object_id})
+    doc = await _users().find_one({"_id": object_id})
+    return User.model_validate(doc) if doc else None
 
 
-async def list_users(role: str | None, skip: int, limit: int) -> list[dict]:
+async def list_users(role: str | None, skip: int, limit: int) -> list[User]:
     """One page of users, newest first, optionally only one role."""
     query = {"role": role} if role else {}
     cursor = _users().find(query).sort("created_at", -1).skip(skip).limit(limit)
-    return await cursor.to_list()
+    return [User.model_validate(doc) for doc in await cursor.to_list()]
 
 
 async def count(role: str | None) -> int:
@@ -68,14 +72,14 @@ async def count(role: str | None) -> int:
     return await _users().count_documents(query)
 
 
-async def update(user_id: str, fields: dict) -> dict | None:
-    """Set the given fields plus updated_at; return the updated user, or None if not found."""
-    object_id = _to_object_id(user_id)
-    if object_id is None:
-        return None
-    changes = {**fields, "updated_at": datetime.now(timezone.utc)}
-    return await _users().find_one_and_update(
-        {"_id": object_id},
-        {"$set": changes},
+async def update(user: User) -> User | None:
+    """Save the changed user (with a new updated_at). Return it, or None if not found."""
+    data = user.to_mongo()
+    data.pop("_id")  # the id itself never changes
+    data["updated_at"] = utcnow()
+    doc = await _users().find_one_and_update(
+        {"_id": ObjectId(user.id)},
+        {"$set": data},
         return_document=ReturnDocument.AFTER,
     )
+    return User.model_validate(doc) if doc else None

@@ -1,38 +1,51 @@
-"""/products/categories endpoints: create, list, get and delete. Categories can't be renamed."""
+"""/products/categories endpoints: create, list, get and delete. Categories can't be renamed.
+
+Each request model sits right above the route that uses it. Responses are the
+Category model from db/model.py.
+"""
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from pydantic import BaseModel, Field
 
 from app.db import db_queries
-from app.db.helpers import category_to_out, new_category_document
-from app.db.model import CategoryCreate, CategoryOut
+from app.db.model import Category
 from app.routes.deps import require_permission
 
 router = APIRouter(tags=["Categories"])
 
 
-@router.post("", response_model=CategoryOut, status_code=status.HTTP_201_CREATED)
+# ---------- create ----------
+class CategoryCreate(BaseModel):
+    """Body of POST /products/categories."""
+
+    name: str = Field(min_length=2, max_length=100)
+
+
+@router.post("", response_model=Category, status_code=status.HTTP_201_CREATED)
 async def create_category(data: CategoryCreate, user: dict = Depends(require_permission("product:create"))):
-    category_doc = new_category_document(data.name, created_by=user["id"])
+    category = Category(name=data.name, created_by=user["id"])
     try:
-        category = await db_queries.create_category(category_doc)
+        return await db_queries.create_category(category)
     except db_queries.DuplicateCategoryError:
         raise HTTPException(status.HTTP_409_CONFLICT, f"Category '{data.name}' already exists")
-    return category_to_out(category)
 
 
-@router.get("", response_model=list[CategoryOut], dependencies=[Depends(require_permission("product:read"))])
+# ---------- list ----------
+@router.get("", response_model=list[Category], dependencies=[Depends(require_permission("product:read"))])
 async def list_categories():
-    return [category_to_out(c) for c in await db_queries.list_categories()]
+    return await db_queries.list_categories()
 
 
-@router.get("/{category_id}", response_model=CategoryOut, dependencies=[Depends(require_permission("product:read"))])
+# ---------- get ----------
+@router.get("/{category_id}", response_model=Category, dependencies=[Depends(require_permission("product:read"))])
 async def get_category(category_id: str):
     category = await db_queries.get_category(category_id)
     if category is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Category not found")
-    return category_to_out(category)
+    return category
 
 
+# ---------- delete ----------
 @router.delete(
     "/{category_id}",
     status_code=status.HTTP_204_NO_CONTENT,
