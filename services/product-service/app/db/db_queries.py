@@ -112,6 +112,12 @@ async def get_by_id(product_id: str) -> Product | None:
     return Product.model_validate(doc) if doc else None
 
 
+async def get_product_by_name(name: str) -> Product | None:
+    """Exact name match. Used by the seed script to skip products that already exist."""
+    doc = await _products().find_one({"name": name})
+    return Product.model_validate(doc) if doc else None
+
+
 async def update(product: Product) -> Product | None:
     """Save the changed product (with a new updated_at). Return it, or None if not found."""
     data = product.to_mongo()
@@ -147,6 +153,12 @@ async def get_category(category_id: str) -> Category | None:
     if oid is None:
         return None
     doc = await _categories().find_one({"_id": oid})
+    return Category.model_validate(doc) if doc else None
+
+
+async def get_category_by_name(name: str) -> Category | None:
+    """Name match in any case ("electronics" finds "Electronics")."""
+    doc = await _categories().find_one({"name_lower": name.lower()})
     return Category.model_validate(doc) if doc else None
 
 
