@@ -33,8 +33,11 @@ async def _get_category_or_400(category_id: str) -> Category:
     return category
 
 
-def _sku_prefix(category_name: str) -> str:
-    """First 3 letters of the category name in capitals: "Electronics" -> "ELE"."""
+def sku_prefix(category_name: str) -> str:
+    """First 3 letters of the category name in capitals: "Electronics" -> "ELE".
+
+    Public (no underscore) because scripts/seed_products.py uses it too.
+    """
     letters = re.sub(r"[^A-Za-z]", "", category_name)
     return letters[:3].upper() or "PRD"
 
@@ -69,7 +72,7 @@ class ProductCreate(BaseModel):
 async def create_product(data: ProductCreate, user: dict = Depends(require_permission("product:create"))):
     category = await _get_category_or_400(data.category_id)
 
-    prefix = _sku_prefix(category.name)
+    prefix = sku_prefix(category.name)
     number = await db_queries.next_sequence(prefix)
     sku = f"{prefix}-{number:06d}"  # e.g. ELE-000001
 
