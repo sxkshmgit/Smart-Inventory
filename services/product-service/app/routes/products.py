@@ -9,7 +9,7 @@ import math
 import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.db import db_queries
 from app.db.model import Category, Money, Page, Product, ProductImage, ProductStatus
@@ -42,6 +42,9 @@ def _sku_prefix(category_name: str) -> str:
 # ---------- create ----------
 class ProductCreate(BaseModel):
     """Body of POST /products. sku, status and created_by are set by the server."""
+
+    # Trim spaces around text fields before validating them.
+    model_config = ConfigDict(str_strip_whitespace=True)
 
     name: str = Field(min_length=2, max_length=200)
     description: str | None = Field(default=None, max_length=2000)
@@ -120,6 +123,9 @@ class ProductUpdate(BaseModel):
 
     sku, status and created_by can't be changed here.
     """
+
+    # Trim spaces around text fields before validating them.
+    model_config = ConfigDict(str_strip_whitespace=True)
 
     name: str | None = Field(default=None, min_length=2, max_length=200)
     description: str | None = Field(default=None, max_length=2000)
